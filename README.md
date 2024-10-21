@@ -1,2 +1,1 @@
-# FN
-Functional Networks
+# Undergraduate dissertation
