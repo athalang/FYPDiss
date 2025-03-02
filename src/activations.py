@@ -1,15 +1,70 @@
-import torch
-import torchvision
-import torchlens as tl
+# %%
+import functools
+import sys
+from pathlib import Path
+from typing import Callable
 
-def main ():
-    torch.use_deterministic_algorithms(True)
-    torch.manual_seed(0)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    alexnet = torchvision.models.alexnet().to(device)
-    x = torch.rand(1, 3, 224, 224)
-    model_history = tl.log_forward_pass(alexnet, x, layers_to_save='all')
-    print(model_history)
+import circuitsvis as cv
+import einops
+import numpy as np
+import torch as t
+import torch.nn as nn
+import torch.nn.functional as F
+#from eindex import eindex
+from IPython.display import display
+from jaxtyping import Float, Int
+from torch import Tensor
+from tqdm import tqdm
+from transformer_lens import (
+    ActivationCache,
+    FactoredMatrix,
+    HookedTransformer,
+    HookedTransformerConfig,
+    utils,
+)
+from transformer_lens.hook_points import HookPoint
 
-if __name__ == '__main__':
-    main()
+device = t.device("mps" if t.backends.mps.is_available() else "cuda" if t.cuda.is_available() else "cpu")
+
+# Saves computation time, since we don't need it for the contents of this notebook
+t.set_grad_enabled(False)
+
+MAIN = __name__ == "__main__"
+
+# %%
+cfg = HookedTransformerConfig(
+    d_model=768,
+    d_head=64,
+    n_heads=12,
+    n_layers=2,
+    n_ctx=2048,
+    d_vocab=50278,
+    attention_dir="causal",
+    attn_only=True,  # defaults to False
+    tokenizer_name="EleutherAI/gpt-neox-20b",
+    seed=398,
+    use_attn_result=True,
+    normalization_type=None,  # defaults to "LN", i.e. layernorm with weights & biases
+    positional_embedding_type="shortformer",
+)
+
+from huggingface_hub import hf_hub_download
+
+REPO_ID = "callummcdougall/attn_only_2L_half"
+FILENAME = "attn_only_2L_half.pth"
+
+weights_path = hf_hub_download(repo_id=REPO_ID, filename=FILENAME)
+
+model = HookedTransformer(cfg)
+pretrained_weights = t.load(weights_path, map_location=device, weights_only=True)
+model.load_state_dict(pretrained_weights)
+# %%
+text = "We think that powerful, significantly superhuman machine intelligence is more likely than not to be created this century. If current machine learning techniques were scaled up to this level, we think they would by default produce systems that are deceptive or manipulative, and that no solid plans are known for how to avoid this."
+
+logits, cache = model.run_with_cache(text, remove_batch_dim=True)
+# %%
+str_tokens = model.to_str_tokens(text)
+for layer in range(model.cfg.n_layers):
+    attention_pattern = cache["pattern", layer]
+    display(cv.attention.attention_patterns(tokens=str_tokens, attention=attention_pattern))
+# %%
