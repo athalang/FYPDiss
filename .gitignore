@@ -1,6 +1,5 @@
-# Graphviz
-*.gv
-*.gv.pdf
+# Weights
+*.pt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
