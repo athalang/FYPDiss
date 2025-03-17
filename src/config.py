@@ -1,11 +1,9 @@
-import torch
-
 SEED = 42
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 VOCAB = {'a':0, 'b':1, 'c':2, 'PAD':3}
 VOCAB_SIZE = len(VOCAB)
 PAD_IDX = VOCAB['PAD']
+LETTERS = list(VOCAB.keys())[:-1]
 
 EMBED_DIM = 32
 NUM_HEADS = 2

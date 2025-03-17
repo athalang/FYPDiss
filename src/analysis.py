@@ -1,25 +1,16 @@
-import torch
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
-from config import DEVICE
-from model import SimpleTransformer
-from dataset import get_dataloaders
+from train import TransformerLitModel
+from dataset import ModCountDataModule
 
-def extract(model, loader):
-    activations, labels = [], []
-    for seqs, labels_batch, lengths in loader:
-        _, encoder_out = model(seqs, lengths)
-        pooled = encoder_out.mean(dim=1)
-        activations.append(pooled.cpu())
-        labels.append(labels_batch.cpu())
-    return torch.cat(activations), torch.cat(labels)
+if __name__ == '__main__':
+    dm = ModCountDataModule()
+    dm.setup()
 
-def visualize():
-    loaders = get_dataloaders()
-    model = SimpleTransformer().to(DEVICE)
-    model.load_state_dict(torch.load("transformer.pt"))
+    model = TransformerLitModel.load_from_checkpoint("checkpoints/best-checkpoint.ckpt")
+    model.eval()
 
-    acts, labels = extract(model, loaders['test'])
+    acts, labels = model.extract_activations(dm.test_dataloader())
     pca = PCA(n_components=2).fit_transform(acts.detach())
     plt.scatter(pca[:,0], pca[:,1], c=labels, alpha=0.5)
     plt.show()
