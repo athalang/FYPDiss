@@ -1,36 +1,47 @@
 import torch
 import torch.nn as nn
-import numpy as np
-from config import *
+import torch.nn.functional as F
+from transformer_lens import HookedTransformer, HookedTransformerConfig
 
-class PositionalEncoding(nn.Module):
-    def __init__(self, embed_dim=EMBED_DIM, max_len=500):
+class QuaternionTransformerWrapper(nn.Module):
+    def __init__(self, d_model=128, d_head=32, n_layers=4, n_ctx=8):
         super().__init__()
-        pos = torch.arange(max_len).unsqueeze(1)
-        div = torch.exp(-torch.arange(0, embed_dim, 2) * (np.log(10000.0) / embed_dim))
-        pe = torch.zeros(max_len, embed_dim)
-        pe[:, 0::2] = torch.sin(pos * div)
-        pe[:, 1::2] = torch.cos(pos * div)
-        self.register_buffer('pe', pe.unsqueeze(0))
+
+        self.config = HookedTransformerConfig(
+            d_model=d_model,
+            d_head=d_head,
+            n_layers=n_layers,
+            n_ctx=n_ctx + 1, # eos token
+
+            act_fn="gelu",
+            use_attn_result=True,
+            attn_only=False,
+            use_hook_mlp_in=True,
+            use_attn_scale=True,
+            use_local_attn=False,
+
+            seed=42,
+            tokenizer_name=None,
+            d_vocab=0,
+            original_architecture="custom",
+            device="cuda" if torch.cuda.is_available() else "cpu"
+        )
+
+        self.model = HookedTransformer(self.config)
+        self.input_proj = nn.Linear(4, d_model)
+        self.output_proj = nn.Linear(d_model, 4)
+        self.eos_quaternion = nn.Parameter(torch.randn(1, 1, 4))
 
     def forward(self, x):
-        return x + self.pe[:,:x.size(1)]
+        eos = self.eos_quaternion.expand(x.shape[0], 1, 4)
+        x = torch.cat([x, eos], dim=1)
+        x = self.input_proj(x)
 
-class SimpleTransformer(nn.Module):
-    def __init__(self, embed_dim=EMBED_DIM, num_heads=NUM_HEADS, num_layers=NUM_LAYERS):
-        super().__init__()
-        self.embedding = nn.Embedding(VOCAB_SIZE, embed_dim, padding_idx=PAD_IDX)
-        self.pos_encoding = PositionalEncoding(embed_dim)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embed_dim, nhead=num_heads, dropout=0.3, batch_first=True
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.classifier = nn.Linear(embed_dim, 2)
+        for block in self.model.blocks:
+            x = block(x)
 
-    def forward(self, x, lengths):
-        x_embed = self.pos_encoding(self.embedding(x))
-        mask = (x == PAD_IDX)
-        encoder_out = self.encoder(x_embed, src_key_padding_mask=mask)
-        pooled = (encoder_out * (~mask.unsqueeze(-1))).sum(1) / (~mask).sum(1, keepdim=True)
-        logits = self.classifier(pooled)
-        return logits, encoder_out
+        x = self.model.ln_final(x)
+        x = x[:, -1]
+        x = self.output_proj(x)
+        x = F.normalize(x, dim=-1)
+        return x

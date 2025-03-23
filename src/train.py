@@ -1,75 +1,75 @@
 import torch
-from model import SimpleTransformer
-from dataset import ModCountDataModule
-from config import *
-import lightning as L
-from lightning.pytorch.callbacks import ModelCheckpoint
-import torchmetrics
+from torch.utils.data import DataLoader, random_split
+from tqdm import tqdm
 
-class TransformerLitModel(L.LightningModule):
-    def __init__(self):
-        super().__init__()
-        self.model = SimpleTransformer()
-        self.criterion = torch.nn.CrossEntropyLoss()
-        self.accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=2)
+from model import QuaternionTransformerWrapper
+from dataset import QuaternionDataset
+from analyse import show
 
-    def forward(self, x, lengths):
-        logits, hidden = self.model(x, lengths)
-        return logits, hidden
+BATCH_SIZE = 64
+SEQ_LEN = 4
+LR = 1e-3
+EPOCHS = 1000
+VAL_SPLIT = 0.1
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def training_step(self, batch, batch_idx):
-        seqs, labels, lengths = batch
-        logits, _ = self(seqs, lengths)
-        loss = self.criterion(logits, labels)
-        acc = self.accuracy(logits.argmax(-1), labels)
-        self.log_dict({"train_loss": loss, "train_acc": acc}, batch_size=BATCH_SIZE, prog_bar=True)
-        return loss
+def quaternion_loss(pred, target):
+    loss1 = ((pred - target) ** 2).sum(dim=-1)
+    loss2 = ((pred + target) ** 2).sum(dim=-1)
+    return torch.min(loss1, loss2).mean()
 
-    def validation_step(self, batch, batch_idx):
-        seqs, labels, lengths = batch
-        logits, _ = self(seqs, lengths)
-        loss = self.criterion(logits, labels)
-        acc = self.accuracy(logits.argmax(-1), labels)
-        self.log_dict({"val_loss": loss, "val_acc": acc}, batch_size=BATCH_SIZE, prog_bar=True)
+def train_one_epoch(model, dataloader, optimizer):
+    model.train()
+    total_loss = 0
+    for quaternions, composed in tqdm(dataloader):
+        quaternions = quaternions.to(DEVICE)
+        composed = composed.to(DEVICE)
 
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=LR, weight_decay=WD)
+        pred = model(quaternions)
+        loss = quaternion_loss(pred, composed)
 
-    def extract_activations(self, dataloader):
-        self.eval()
-        all_activations, all_labels = [], []
-        with torch.no_grad():
-            for seqs, labels, lengths in dataloader:
-                seqs, labels = seqs.to(self.device), labels.to(self.device)
-                _, hidden = self(seqs, lengths)
-                pooled = hidden.mean(dim=1)
-                all_activations.append(pooled.cpu())
-                all_labels.append(labels.cpu())
-        return torch.cat(all_activations), torch.cat(all_labels)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-if __name__ == '__main__':
-    checkpoint_callback = ModelCheckpoint(
-        dirpath='checkpoints/',
-        filename='best-checkpoint',
-        monitor='val_loss',
-        mode='min',
-        save_top_k=1,
-    )
+        total_loss += loss.item()
 
-    trainer = L.Trainer(
-        max_epochs=EPOCHS,
-        accelerator='gpu' if torch.cuda.is_available() else 'cpu',
-        callbacks=[checkpoint_callback],
-        log_every_n_steps=50
-    )
+    return total_loss / len(dataloader)
 
-    dm = ModCountDataModule()
-    model = TransformerLitModel()
+def evaluate(model, dataloader):
+    model.eval()
+    total_loss = 0
+    with torch.no_grad():
+        for quaternions, composed in dataloader:
+            quaternions = quaternions.to(DEVICE)
+            composed = composed.to(DEVICE)
 
-    import os
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-    import random
-    random.seed(SEED)
-    torch.manual_seed(SEED)
-    torch.use_deterministic_algorithms(True)
-    trainer.fit(model, dm)
+            pred = model(quaternions)
+            loss = quaternion_loss(pred, composed)
+            total_loss += loss.item()
+
+    return total_loss / len(dataloader)
+
+def main():
+    model = QuaternionTransformerWrapper(n_ctx=SEQ_LEN).to(DEVICE)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-2)
+
+    dataset = QuaternionDataset(n_samples=5000, sequence_length=SEQ_LEN)
+    n_val = int(len(dataset) * VAL_SPLIT)
+    n_train = len(dataset) - n_val
+    train_dataset, val_dataset = random_split(dataset, [n_train, n_val])
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE)
+
+    train_losses = []
+    val_losses = []
+    for epoch in range(EPOCHS):
+        train_loss = train_one_epoch(model, train_loader, optimizer)
+        val_loss = evaluate(model, val_loader)
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+        print(f"Epoch {epoch+1:3d}: Train Loss = {train_loss:.6f} | Val Loss = {val_loss:.6f}")
+    show(train_losses, val_losses)
+
+if __name__ == "__main__":
+    main()
