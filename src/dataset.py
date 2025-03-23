@@ -1,58 +1,22 @@
+import numpy as np
+import quaternionic as q
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-import random
-from config import *
-import lightning as L
+from torch.utils.data import Dataset
+from functools import reduce
 
-class ModCountDataset(Dataset):
-    def __init__(self, size, min_len, max_len):
-        self.size = size
-        self.min_len = min_len
-        self.max_len = max_len
+class QuaternionComposition(Dataset):
+    def __init__(self, n_samples, sequence_length):
+        self.sequences = np.zeros((n_samples, sequence_length, 4), dtype=np.float32)
+        self.targets = np.zeros((n_samples, 4), dtype=np.float32)
+        
+        for i in range(n_samples):
+            qs = q.array.random(shape=(sequence_length,))
+            self.sequences[i] = qs
+            self.targets[i] = reduce(lambda acc, q : (q * acc).normalized,
+                                     qs[1:], qs[0])
 
     def __len__(self):
-        return self.size
+        return len(self.sequences)
 
     def __getitem__(self, idx):
-        length = random.randint(self.min_len, self.max_len)
-        seq = random.choices(LETTERS, k=length)
-        mod_a = seq.count('a') % 3
-        mod_b = seq.count('b') % 2
-        label = 1 if (mod_a == 0 and mod_b == 0) else 0
-        seq_ids = torch.tensor([VOCAB[t] for t in seq])
-        return seq_ids, torch.tensor(label)
-
-def collate_fn(batch):
-    sequences, labels = zip(*batch)
-    lengths = [len(seq) for seq in sequences]
-    padded_seqs = nn.utils.rnn.pad_sequence(sequences, batch_first=True, padding_value=PAD_IDX)
-    labels = torch.stack(labels)
-    return padded_seqs, labels, lengths
-
-class ModCountDataModule(L.LightningDataModule):
-    def __init__(self):
-        super().__init__()
-
-    def setup(self, stage=None):
-        self.train_data = ModCountDataset(TRAIN_SIZE, *TRAIN_SEQ_LEN)
-        self.val_data = ModCountDataset(VAL_SIZE, *TRAIN_SEQ_LEN)
-        self.test_data = ModCountDataset(TEST_SIZE, *TEST_SEQ_LEN)
-
-    def train_dataloader(self):
-        return DataLoader(
-            self.train_data, batch_size=BATCH_SIZE, shuffle=True, 
-            collate_fn=collate_fn, num_workers=4,
-            persistent_workers=True, pin_memory=True)
-
-    def val_dataloader(self):
-        return DataLoader(
-            self.val_data, batch_size=BATCH_SIZE,
-            collate_fn=collate_fn, num_workers=4,
-            persistent_workers=True, pin_memory=True)
-
-    def test_dataloader(self):
-        return DataLoader(
-            self.test_data, batch_size=BATCH_SIZE,
-            collate_fn=collate_fn, num_workers=4,
-            persistent_workers=True, pin_memory=True)
+        return torch.tensor(self.sequences[idx]), torch.tensor(self.targets[idx])
