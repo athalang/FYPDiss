@@ -23,8 +23,8 @@ def qcompose(seq: torch.Tensor) -> torch.Tensor:
         out = qnorm(qmul(seq[:, i], out))
     return out
 
-def qgeodesic(q1: torch.Tensor, q2: torch.Tensor, eps=1e-8) -> torch.Tensor:
-    q1 = qnorm(q1)
-    q2 = qnorm(q2)
-    dot = torch.sum(q1 * q2, dim=-1).clamp(-1 + eps, 1 - eps)
-    return torch.acos(dot.abs())
+def qdot(q1: torch.Tensor, q2: torch.Tensor, eps=1e-8):
+    return torch.sum(q1 * q2, dim=-1).clamp(-1 + eps, 1 - eps)
+
+def qgeodesic(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
+    return torch.acos(qdot(q1, q2))

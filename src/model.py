@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformer_lens import HookedTransformer, HookedTransformerConfig
 
-class QuaternionTransformerWrapper(nn.Module):
+class HookedQuatransformer(nn.Module):
     def __init__(self, d_model=128, d_head=32, n_layers=4, n_ctx=8):
         super().__init__()
 
@@ -22,12 +22,14 @@ class QuaternionTransformerWrapper(nn.Module):
 
             seed=42,
             tokenizer_name=None,
+            positional_embedding_type="rotary",
             d_vocab=0,
             original_architecture="custom",
             device="cuda" if torch.cuda.is_available() else "cpu"
         )
 
         self.model = HookedTransformer(self.config)
+        self.blocks = nn.Sequential(*self.model.blocks)
         self.input_proj = nn.Linear(4, d_model)
         self.output_proj = nn.Linear(d_model, 4)
         self.eos_quaternion = nn.Parameter(torch.randn(1, 1, 4))
@@ -37,11 +39,10 @@ class QuaternionTransformerWrapper(nn.Module):
         x = torch.cat([x, eos], dim=1)
         x = self.input_proj(x)
 
-        for block in self.model.blocks:
-            x = block(x)
-
+        #for block in self.model.blocks:
+        #    x = block(x)
+        x = self.blocks(x)
         x = self.model.ln_final(x)
-        x = x[:, -1]
-        x = self.output_proj(x)
-        x = F.normalize(x, dim=-1)
-        return x
+
+        out = self.output_proj(x[:, -1])
+        return F.normalize(out, dim=-1)
