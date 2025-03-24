@@ -11,4 +11,4 @@ class QuaternionDataset(Dataset):
         return len(self.sequences)
 
     def __getitem__(self, idx):
-        return torch.tensor(self.sequences[idx]), torch.tensor(self.targets[idx])
+        return self.sequences[idx].clone(), self.targets[idx].clone()
