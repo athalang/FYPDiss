@@ -1,37 +1,18 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformer_lens import HookedTransformer, HookedTransformerConfig
+from transformer_lens import HookedTransformer
+
+from config import TL_CONFIG, DMODEL
 
 class HookedQuatransformer(nn.Module):
-    def __init__(self, d_model=128, d_head=32, n_layers=4, n_ctx=8):
+    def __init__(self):
         super().__init__()
 
-        self.config = HookedTransformerConfig(
-            d_model=d_model,
-            d_head=d_head,
-            n_layers=n_layers,
-            n_ctx=n_ctx + 1, # eos token
-
-            act_fn="gelu",
-            use_attn_result=True,
-            attn_only=False,
-            use_hook_mlp_in=True,
-            use_attn_scale=True,
-            use_local_attn=False,
-
-            seed=42,
-            tokenizer_name=None,
-            positional_embedding_type="rotary",
-            d_vocab=0,
-            original_architecture="custom",
-            device="cuda" if torch.cuda.is_available() else "cpu"
-        )
-
-        self.model = HookedTransformer(self.config)
+        self.model = HookedTransformer(TL_CONFIG)
         self.blocks = nn.Sequential(*self.model.blocks)
-        self.input_proj = nn.Linear(4, d_model)
-        self.output_proj = nn.Linear(d_model, 4)
+        self.input_proj = nn.Linear(4, DMODEL)
+        self.output_proj = nn.Linear(DMODEL, 4)
         self.eos_quaternion = nn.Parameter(torch.randn(1, 1, 4))
 
     def forward(self, x):
