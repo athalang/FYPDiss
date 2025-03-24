@@ -1,8 +1,5 @@
-# Weights
-checkpoints/
-
-# Lightning
-lightning_logs/
+# Tensorboard
+runs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,22 +1,22 @@
 import torch
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
+from torch.utils.tensorboard import SummaryWriter
 
 from model import QuaternionTransformerWrapper
 from dataset import QuaternionDataset
-from analyse import show
+from quat import qgeodesic
 
 BATCH_SIZE = 64
 SEQ_LEN = 4
 LR = 1e-3
-EPOCHS = 1000
+EPOCHS = 100
+SAMPLES = 10000
 VAL_SPLIT = 0.1
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def quaternion_loss(pred, target):
-    loss1 = ((pred - target) ** 2).sum(dim=-1)
-    loss2 = ((pred + target) ** 2).sum(dim=-1)
-    return torch.min(loss1, loss2).mean()
+    return qgeodesic(pred, target).mean()
 
 def train_one_epoch(model, dataloader, optimizer):
     model.train()
@@ -51,13 +51,13 @@ def evaluate(model, dataloader):
     return total_loss / len(dataloader)
 
 def main():
+    writer = SummaryWriter()
     model = QuaternionTransformerWrapper(n_ctx=SEQ_LEN).to(DEVICE)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-2)
 
-    dataset = QuaternionDataset(n_samples=5000, sequence_length=SEQ_LEN)
-    n_val = int(len(dataset) * VAL_SPLIT)
-    n_train = len(dataset) - n_val
-    train_dataset, val_dataset = random_split(dataset, [n_train, n_val])
+    generator = torch.Generator().manual_seed(42)
+    dataset = QuaternionDataset(n_samples=SAMPLES, sequence_length=SEQ_LEN)
+    train_dataset, val_dataset = random_split(dataset, [1.0 - VAL_SPLIT, VAL_SPLIT], generator=generator)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE)
 
@@ -69,7 +69,9 @@ def main():
         train_losses.append(train_loss)
         val_losses.append(val_loss)
         print(f"Epoch {epoch+1:3d}: Train Loss = {train_loss:.6f} | Val Loss = {val_loss:.6f}")
-    show(train_losses, val_losses)
+        writer.add_scalar('Loss/train', train_loss, epoch)
+        writer.add_scalar('Loss/val', val_loss, epoch)
+    writer.close()
 
 if __name__ == "__main__":
     main()
