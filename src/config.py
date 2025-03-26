@@ -14,7 +14,7 @@ DMODEL = 256
 DHEAD = 32
 ATTN_LAYERS = 4
 VAL_SPLIT = 1 / NUM_BATCHES
-LAMBDA = 3.0
+LAMBDA = 1.0
 DEVICETYPE = "cuda" if torch.cuda.is_available() else "cpu"
 DEVICE = torch.device(DEVICETYPE)
 
@@ -27,7 +27,6 @@ TL_CONFIG = HookedTransformerConfig(
     act_fn="gelu",
     use_attn_result=True,
     attn_only=False,
-    use_hook_mlp_in=True,
     use_attn_scale=True,
     use_local_attn=False,
 
@@ -38,3 +37,11 @@ TL_CONFIG = HookedTransformerConfig(
     original_architecture="custom",
     device="cuda" if torch.cuda.is_available() else "cpu"
 )
+
+HOOK_NAMES = [
+    f"blocks.{i}.hook_mlp_out" for i in range(ATTN_LAYERS)
+] + [
+    f"blocks.{i}.hook_attn_out" for i in range(ATTN_LAYERS)
+] + [
+    f"blocks.{i}.hook_resid_post" for i in range(ATTN_LAYERS)
+]

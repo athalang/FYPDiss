@@ -6,7 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 from config import *
 from model import HookedQuatransformer
 from dataset import QuaternionDataset
-from quat import qgeodesic, qdot, qnorm, directional_loss
+from quat import qmagnitude, qgeodesic, qdot, hybrid_loss
 
 def train_one_epoch(model, dataloader, optimizer):
     model.train()
@@ -14,6 +14,7 @@ def train_one_epoch(model, dataloader, optimizer):
     total_loss = 0
     total_geodesic = 0
     total_dot = 0
+    all_norms = []
     for quaternions, composed in tqdm(dataloader):
         quaternions = quaternions.to(DEVICE)
         composed = composed.to(DEVICE)
@@ -21,35 +22,44 @@ def train_one_epoch(model, dataloader, optimizer):
         optimizer.zero_grad()
         with torch.amp.autocast(dtype=torch.bfloat16, device_type=DEVICETYPE):
             pred = model(quaternions)
-            loss = directional_loss(pred, composed, l = LAMBDA)
+            loss = hybrid_loss(pred, composed)
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
 
-        total_geodesic += qgeodesic(qnorm(pred), qnorm(composed)).mean().item()
-        total_dot += qdot(qnorm(pred), qnorm(composed)).mean()
+        all_norms.append(qmagnitude(pred))
+        total_geodesic += qgeodesic(pred, composed).mean().item()
+        total_dot += qdot(pred, composed).mean()
         total_loss += loss.item()
 
-    return total_loss / len(dataloader), total_geodesic / len(dataloader), total_dot / len(dataloader)
+    all_norms = torch.cat(all_norms, dim=0)
+    epoch_mean = all_norms.mean().item()
+    epoch_std = all_norms.std().item()
+    return total_loss / len(dataloader), total_geodesic / len(dataloader), total_dot / len(dataloader), epoch_mean, epoch_std
 
 def evaluate(model, dataloader):
     model.eval()
     total_loss = 0
     total_geodesic = 0
     total_dot = 0
+    all_norms = []
     with torch.no_grad():
         for quaternions, composed in dataloader:
             quaternions = quaternions.to(DEVICE)
             composed = composed.to(DEVICE)
 
             pred = model(quaternions)
-            loss = directional_loss(pred, composed, l = LAMBDA)
-
-            total_geodesic += qgeodesic(qnorm(pred), qnorm(composed)).mean().item()
-            total_dot += qdot(qnorm(pred), qnorm(composed)).mean()
+            loss = hybrid_loss(pred, composed)
+            
+            all_norms.append(qmagnitude(pred))
+            total_geodesic += qgeodesic(pred, composed).mean().item()
+            total_dot += qdot(pred, composed).mean()
             total_loss += loss.item()
 
-    return total_loss / len(dataloader), total_geodesic / len(dataloader), total_dot / len(dataloader)
+    all_norms = torch.cat(all_norms, dim=0)
+    epoch_mean = all_norms.mean().item()
+    epoch_std = all_norms.std().item()
+    return total_loss / len(dataloader), total_geodesic / len(dataloader), total_dot / len(dataloader), epoch_mean, epoch_std
 
 def main():
     torch.manual_seed(SEED)
@@ -73,15 +83,19 @@ def main():
     best_state = None
     try:
         for epoch in range(EPOCHS):
-            train_loss, train_geodesic, train_dot = train_one_epoch(model, train_loader, optimizer)
-            val_loss, val_geodesic, val_dot = evaluate(model, val_loader)
+            train_loss, train_geodesic, train_dot, train_norm_mean, train_norm_std = train_one_epoch(model, train_loader, optimizer)
+            val_loss, val_geodesic, val_dot, val_norm_mean, val_norm_std = evaluate(model, val_loader)
 
             writer.add_scalar('Train/loss', train_loss, epoch)
             writer.add_scalar('Train/geodesic', train_geodesic, epoch)
             writer.add_scalar('Train/dot', train_dot, epoch)
+            writer.add_scalar('Train/mean_norm', train_norm_mean, epoch)
+            writer.add_scalar('Train/std_norm', train_norm_std, epoch)
             writer.add_scalar('Val/loss', val_loss, epoch)
             writer.add_scalar('Val/geodesic', val_geodesic, epoch)
             writer.add_scalar('Val/dot', val_dot, epoch)
+            writer.add_scalar('Val/mean_norm', val_norm_mean, epoch)
+            writer.add_scalar('Val/std_norm', val_norm_std, epoch)
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 best_state = model.state_dict()
@@ -90,8 +104,8 @@ def main():
         print("KeyboardInterrupt")
     finally:
         writer.close()
-        #if best_state is not None:
-            #torch.save(best_state, "best_model.pt")
+        if best_state is not None:
+            torch.save(best_state, "best_model.pt")
 
 if __name__ == "__main__":
     main()

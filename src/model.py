@@ -1,29 +1,31 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from transformer_lens import HookedTransformer
 
 from config import TL_CONFIG, DMODEL
 
-class HookedQuatransformer(nn.Module):
+class QuaternionEmbed(nn.Module):
     def __init__(self):
         super().__init__()
-
-        self.model = HookedTransformer(TL_CONFIG)
-        self.blocks = nn.Sequential(*self.model.blocks)
         self.input_proj = nn.Linear(4, DMODEL)
-        self.output_proj = nn.Linear(DMODEL, 4)
         self.eos_quaternion = nn.Parameter(torch.randn(1, 1, 4))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         eos = self.eos_quaternion.expand(x.shape[0], 1, 4)
         x = torch.cat([x, eos], dim=1)
-        x = self.input_proj(x)
+        return self.input_proj(x)
 
-        #for block in self.model.blocks:
-        #    x = block(x)
-        x = self.blocks(x)
-        x = self.model.ln_final(x)
+class QuaternionUnembed(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.out_proj = nn.Linear(DMODEL, 4)
 
-        out = self.output_proj(x[:, -1])
-        return F.normalize(out, dim=-1)
+    def forward(self, residual: torch.Tensor) -> torch.Tensor:
+        eos = self.out_proj(residual[:, -1])
+        return eos
+
+class HookedQuatransformer(HookedTransformer):
+    def __init__(self):
+        super().__init__(TL_CONFIG)
+        self.embed = QuaternionEmbed()
+        self.unembed = QuaternionUnembed()

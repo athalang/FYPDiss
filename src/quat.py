@@ -1,8 +1,11 @@
 import torch
 from config import LAMBDA, EPS
 
-def qnorm(q: torch.Tensor, eps=EPS) -> torch.Tensor:
-    return q / (q.norm(dim=-1, keepdim=True) + eps)
+def qmagnitude(q: torch.Tensor) -> torch.tensor:
+    return q.norm(dim=-1, keepdim=True)
+
+def qnormalise(q: torch.Tensor, eps=EPS) -> torch.Tensor:
+    return q / (qmagnitude(q) + eps)
 
 def qinv(q: torch.Tensor) -> torch.Tensor:
     w, x, y, z = q.unbind(-1)
@@ -21,19 +24,23 @@ def qmul(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
 def qcompose(seq: torch.Tensor) -> torch.Tensor:
     out = seq[:, 0]
     for i in range(1, seq.shape[1]):
-        out = qnorm(qmul(seq[:, i], out))
+        out = qnormalise(qmul(seq[:, i], out))
     return out
 
 def qdot(q1: torch.Tensor, q2: torch.Tensor, eps=EPS):
     return torch.sum(q1 * q2, dim=-1).clamp(-1 + eps, 1 - eps)
 
 def qgeodesic(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
-    return torch.acos(qdot(q1, q2))
+    return 2 * torch.acos(qdot(q1, q2))
 
 def geodesic_loss(q1, q2):
-    return qgeodesic(qnorm(q1), qnorm(q2)).mean()
+    return qgeodesic(qnormalise(q1), qnormalise(q2)).mean()
 
-def directional_loss(q1, q2, l=LAMBDA):
-    q1 = qnorm(q1)
-    q2 = qnorm(q2)
-    return (qgeodesic(q1, q2) + l * (1 - qdot(q1, q2))).mean()
+def square_geo_loss(q1, q2):
+    return (qgeodesic(qnormalise(q1), qnormalise(q2)) ** 2).mean()
+
+def norm_loss(q1):
+    return ((qmagnitude(q1) - 1)**2).mean()
+
+def hybrid_loss(q1, q2, l=LAMBDA):
+    return (qgeodesic(q1, q2) ** 2).mean() + l * norm_loss(q1)
