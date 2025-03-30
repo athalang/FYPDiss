@@ -2,7 +2,7 @@ import torch
 from config import LAMBDA, EPS
 
 def qmagnitude(q: torch.Tensor) -> torch.tensor:
-    return q.norm(dim=-1, keepdim=True)
+    return q.norm(dim=-1, keepdim=True).clamp(min=EPS, max=10.0)
 
 def qnormalise(q: torch.Tensor, eps=EPS) -> torch.Tensor:
     return q / (qmagnitude(q) + eps)
@@ -33,14 +33,14 @@ def qdot(q1: torch.Tensor, q2: torch.Tensor, eps=EPS):
 def qgeodesic(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
     return 2 * torch.acos(qdot(q1, q2))
 
-def geodesic_loss(q1, q2):
-    return qgeodesic(qnormalise(q1), qnormalise(q2)).mean()
+def squared_geo(q1, q2):
+    return qgeodesic(q1, q2) ** 2
 
-def square_geo_loss(q1, q2):
-    return (qgeodesic(qnormalise(q1), qnormalise(q2)) ** 2).mean()
+def euclidean(q1, q2):
+    return ((q1 - q2)**2).sum(dim=-1)
 
-def norm_loss(q1):
-    return ((qmagnitude(q1) - 1)**2).mean()
+def reprojection(q1):
+    return euclidean(q1, qnormalise(q1))
 
 def hybrid_loss(q1, q2, l=LAMBDA):
-    return (qgeodesic(q1, q2) ** 2).mean() + l * norm_loss(q1)
+    return (squared_geo(q1, q2) + l * reprojection(q1)).mean()

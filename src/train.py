@@ -1,16 +1,15 @@
 import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
 from config import *
-from model import HookedQuatransformer
+from node import ODERNN
 from dataset import QuaternionDataset
 from quat import qmagnitude, qgeodesic, qdot, hybrid_loss
 
-def train_one_epoch(model, dataloader, optimizer):
+def train_one_epoch(model, dataloader, optimiser):
     model.train()
-    scaler = torch.amp.GradScaler()
     total_loss = 0
     total_geodesic = 0
     total_dot = 0
@@ -19,13 +18,11 @@ def train_one_epoch(model, dataloader, optimizer):
         quaternions = quaternions.to(DEVICE)
         composed = composed.to(DEVICE)
 
-        optimizer.zero_grad()
-        with torch.amp.autocast(dtype=torch.bfloat16, device_type=DEVICETYPE):
-            pred = model(quaternions)
-            loss = hybrid_loss(pred, composed)
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
+        optimiser.zero_grad()
+        pred = model(quaternions)
+        loss = hybrid_loss(pred, composed)
+        loss.backward()
+        optimiser.step()
 
         all_norms.append(qmagnitude(pred))
         total_geodesic += qgeodesic(pred, composed).mean().item()
@@ -66,16 +63,15 @@ def main():
     torch.cuda.manual_seed_all(SEED)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    torch.set_default_dtype(torch.float64)
     writer = SummaryWriter()
-    model = HookedQuatransformer().to(DEVICE)
+    model = ODERNN().to(DEVICE)
     model = torch.compile(model)
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
-    dataset = QuaternionDataset(n_samples=SAMPLES, sequence_length=SEQ_LEN)
-    train_dataset, val_dataset = random_split(dataset, [1.0 - VAL_SPLIT, VAL_SPLIT])
+    optimiser = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
+    train_dataset = QuaternionDataset(n_samples=SAMPLES, seq_length=SEQ_LEN)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
                                 pin_memory=True, num_workers=4, persistent_workers=True)
+    val_dataset = QuaternionDataset(n_samples=SAMPLES, seq_length=VAL_SEQ_LEN)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE,
                                 pin_memory=True, num_workers=4, persistent_workers=True)
 
@@ -83,7 +79,7 @@ def main():
     best_state = None
     try:
         for epoch in range(EPOCHS):
-            train_loss, train_geodesic, train_dot, train_norm_mean, train_norm_std = train_one_epoch(model, train_loader, optimizer)
+            train_loss, train_geodesic, train_dot, train_norm_mean, train_norm_std = train_one_epoch(model, train_loader, optimiser)
             val_loss, val_geodesic, val_dot, val_norm_mean, val_norm_std = evaluate(model, val_loader)
 
             writer.add_scalar('Train/loss', train_loss, epoch)
