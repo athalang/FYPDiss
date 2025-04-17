@@ -1,4 +1,8 @@
 torch
+torchdiffeq
 tqdm
-transformer_lens
 tensorboard
+numpy
+matplotlib
+seaborn
+pandas
