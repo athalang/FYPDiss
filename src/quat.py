@@ -44,3 +44,11 @@ def reprojection(q1):
 
 def hybrid_loss(q1, q2, l=LAMBDA):
     return (squared_geo(q1, q2) + l * reprojection(q1)).mean()
+
+def slerp(q1, q2, t):
+    dot = qdot(q1, q2)
+    theta = torch.acos(dot)
+    sin_theta = torch.sin(theta)
+    s0 = torch.sin((1 - t) * theta) / sin_theta
+    s1 = torch.sin(t * theta) / sin_theta
+    return s0.unsqueeze(-1) * q1 + s1.unsqueeze(-1) * q2

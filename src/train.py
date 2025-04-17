@@ -19,7 +19,7 @@ def train_one_epoch(model, dataloader, optimiser):
         composed = composed.to(DEVICE)
 
         optimiser.zero_grad()
-        pred = model(quaternions)
+        pred, _ = model(quaternions)
         loss = hybrid_loss(pred, composed)
         loss.backward()
         optimiser.step()
@@ -45,9 +45,9 @@ def evaluate(model, dataloader):
             quaternions = quaternions.to(DEVICE)
             composed = composed.to(DEVICE)
 
-            pred = model(quaternions)
+            pred, _ = model(quaternions)
             loss = hybrid_loss(pred, composed)
-            
+
             all_norms.append(qmagnitude(pred))
             total_geodesic += qgeodesic(pred, composed).mean().item()
             total_dot += qdot(pred, composed).mean()
@@ -66,7 +66,6 @@ def main():
     torch.set_default_dtype(torch.float64)
     writer = SummaryWriter()
     model = ODERNN().to(DEVICE)
-    model = torch.compile(model)
     optimiser = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
     train_dataset = QuaternionDataset(n_samples=SAMPLES, seq_length=SEQ_LEN)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,

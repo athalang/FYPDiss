@@ -1,8 +1,11 @@
 # Weights
 *.pt
 
-# Tensorboard
+# Logs
 runs/
+*.csv
+*.svg
+*.pdf
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
