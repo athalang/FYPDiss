@@ -3,9 +3,9 @@ import pandas as pd
 from torchdiffeq import odeint
 from tqdm import tqdm
 
-from quat import qnormalise, qmul, slerp, qgeodesic
+from quat import qnormalise, qmul, slerp, euclidean
 from config import CONFIG
-from node import ODEFunc
+from node import NODE
 torch.manual_seed(CONFIG.seed)
 torch.cuda.manual_seed_all(CONFIG.seed)
 torch.backends.cudnn.deterministic = True
@@ -14,9 +14,8 @@ torch.set_default_dtype(torch.float64)
 
 N_SAMPLES = 8192
 TOLERANCE = 0.05
-LOW, HIGH = 1.0 - TOLERANCE, 1.0 + TOLERANCE
 TS = torch.linspace(0, 1, CONFIG.slerp_traj_steps, device=CONFIG.device)
-odefunc = ODEFunc(CONFIG).to(CONFIG.device).eval()
+model = NODE(CONFIG).to(CONFIG.device).eval()
 
 all_rows = []
 with torch.no_grad():
@@ -28,7 +27,7 @@ with torch.no_grad():
         slerp_traj = torch.stack([slerp(h0, target, t.item()) for t in TS])
 
         def f(t, h):
-            return odefunc(t, torch.cat([h, q]))
+            return model.vector_field(h, q)
 
         h_traj = odeint(f, h0, TS, method='rk4')
 
@@ -36,29 +35,22 @@ with torch.no_grad():
             h = h_traj[i]
             s = slerp_traj[i]
             norm = h.norm().item()
-            dist = qgeodesic(h, s).item()
+            dist = euclidean(h, s).item()
 
             all_rows.append({
                 "sample": sample,
                 "step": i,
                 "norm": norm,
-                "geodesic_distance": dist,
-                "on_sphere": LOW <= norm <= HIGH
+                "euclidean_distance": dist,
             })
 
 df = pd.DataFrame(all_rows)
-df.to_csv("geodesic_deviation_samples_raw.csv", index=False)
+df.to_csv("samples_raw.csv", index=False)
 
 agg = df.groupby("step").agg(
-    mean_geodesic=("geodesic_distance", "mean"),
-    std_geodesic=("geodesic_distance", "std"),
+    mean_distance=("euclidean_distance", "mean"),
+    std_distance=("euclidean_distance", "std"),
     mean_norm=("norm", "mean"),
     std_norm=("norm", "std"),
 )
-on_sphere_df = df[df["on_sphere"]]
-agg_on_sphere = on_sphere_df.groupby("step").agg(
-    mean_geodesic_on_sphere=("geodesic_distance", "mean"),
-    std_geodesic_on_sphere=("geodesic_distance", "std"),
-)
-agg_full = pd.concat([agg, agg_on_sphere], axis=1).reset_index()
-agg_full.to_csv("geodesic_deviation_samples_agg.csv", index=False)
+agg.to_csv("samples_agg.csv", index=False)

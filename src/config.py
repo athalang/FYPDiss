@@ -16,13 +16,11 @@ class TrainingConfig:
     batch_size: int = 8192
     num_batches: int = 16
     val_batches: int = 4
-    seq_len: int = 4
-    val_seq_len: int = 16
     lr: float = 1e-3
     weight_decay: float = 1e-1
-    epochs: int = 100
+    epochs: int = 1000
     lambda_weight: float = 1.0
-    rnn_traj_steps: int = 2
+    ode_steps: int = 2
     slerp_traj_steps: int = 20
     device_type: str = field(default_factory=_default_device_type)
     device: torch.device = field(init=False)
@@ -47,13 +45,11 @@ class TrainingConfig:
             "train_samples": self.train_samples,
             "val_batches": self.val_batches,
             "val_samples": self.val_samples,
-            "seq_len": self.seq_len,
-            "val_seq_len": self.val_seq_len,
             "learning_rate": self.lr,
             "weight_decay": self.weight_decay,
             "epochs": self.epochs,
             "lambda_weight": self.lambda_weight,
-            "rnn_traj_steps": self.rnn_traj_steps,
+            "ode_steps": self.ode_steps,
             "slerp_traj_steps": self.slerp_traj_steps,
             "device_type": self.device_type,
             "device": str(self.device),

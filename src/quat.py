@@ -2,7 +2,6 @@ import torch
 
 from config import CONFIG
 
-
 def qmagnitude(q: torch.Tensor) -> torch.Tensor:
     return q.norm(dim=-1, keepdim=True).clamp(min=CONFIG.eps, max=10.0)
 
@@ -36,21 +35,8 @@ def qdot(q1: torch.Tensor, q2: torch.Tensor, eps=None):
         eps = CONFIG.eps
     return torch.sum(q1 * q2, dim=-1).clamp(-1 + eps, 1 - eps)
 
-def qgeodesic(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
-    return 2 * torch.acos(qdot(q1, q2))
-
-def squared_geo(q1, q2):
-    return qgeodesic(q1, q2) ** 2
-
 def euclidean(q1, q2):
     return ((q1 - q2)**2).sum(dim=-1)
-
-def reprojection(q1):
-    return euclidean(q1, qnormalise(q1))
-
-def hybrid_loss(q1, q2, lambda_weight=None):
-    weight = CONFIG.lambda_weight if lambda_weight is None else lambda_weight
-    return (squared_geo(q1, q2) + weight * reprojection(q1)).mean()
 
 def slerp(q1, q2, t):
     dot = qdot(q1, q2)

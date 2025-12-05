@@ -4,8 +4,7 @@ from torchdiffeq import odeint
 
 from config import CONFIG, TrainingConfig
 
-
-class ODEFunc(nn.Module):
+class NODE(nn.Module):
     def __init__(self, config: TrainingConfig = CONFIG):
         super().__init__()
         self.config = config
@@ -14,34 +13,23 @@ class ODEFunc(nn.Module):
             nn.Tanh(),
             nn.Linear(config.dmlp1, config.dmlp2),
             nn.Tanh(),
-            nn.Linear(config.dmlp2, config.dstate)
+            nn.Linear(config.dmlp2, config.dstate),
         )
 
-    def forward(self, _, state_control):
-        return self.net(state_control)
+    def vector_field(self, state: torch.Tensor, control: torch.Tensor) -> torch.Tensor:
+        return self.net(torch.cat([state, control], dim=-1))
 
+    def forward(self, states: torch.Tensor, controls: torch.Tensor) -> torch.Tensor:
+        t_span = torch.linspace(
+            0.0,
+            1.0,
+            self.config.ode_steps,
+            device=states.device,
+            dtype=states.dtype,
+        )
 
-class ODERNN(nn.Module):
-    def __init__(self, config: TrainingConfig = CONFIG):
-        super().__init__()
-        self.config = config
-        self.odefunc = ODEFunc(config)
+        def f(time, h):
+            return self.vector_field(h, controls)
 
-    def forward(self, quat_seq):
-        batch_size, seq_len, _ = quat_seq.shape
-        device = quat_seq.device
-        h = torch.zeros(batch_size, self.config.dstate, device=device)
-        h[:, 0] = 1.0
-        trajectories = []
-
-        t_span = torch.linspace(0.0, 1.0, self.config.rnn_traj_steps, device=device)
-        for t in range(seq_len):
-            q_t = quat_seq[:, t]
-            f = lambda time, h_: self.odefunc(time, torch.cat([h_, q_t], dim=-1))
-            h_traj = odeint(f, h, t_span, method='rk4')
-            trajectories.append(h_traj)
-            h = h_traj[-1]
-
-        # [batch, seq_len, N_STEPS, DSTATE]
-        trajectories = torch.stack(trajectories, dim=0).permute(2, 0, 1, 3)
-        return h, trajectories
+        traj = odeint(f, states, t_span, method="rk4")
+        return traj[-1]
