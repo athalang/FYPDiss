@@ -1,22 +1,64 @@
+from dataclasses import dataclass, field
+
 import torch
 
-DINPUT = 4
-DSTATE = DINPUT
-DMLP1 = 64
-DMLP2 = 64
-EPS = 1e-8
-SEED = 42
-BATCH_SIZE = 8192
-NUM_BATCHES = 16
-SAMPLES = BATCH_SIZE * NUM_BATCHES
-VAL_SAMPLES = BATCH_SIZE * 4
-SEQ_LEN = 4
-VAL_SEQ_LEN = 16
-LR = 1e-3
-WD = 1e-1
-EPOCHS = 2000
-LAMBDA = 1
-RNN_TRAJ_STEPS = 2
-SLERP_TRAJ_STEPS = 20
-DEVICETYPE = "cuda" if torch.cuda.is_available() else "cpu"
-DEVICE = torch.device(DEVICETYPE)
+def _default_device_type() -> str:
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+@dataclass
+class TrainingConfig:
+    dinput: int = 4
+    dstate: int = 4
+    dmlp1: int = 32
+    dmlp2: int = 32
+    eps: float = 1e-8
+    seed: int = 42
+    batch_size: int = 8192
+    num_batches: int = 16
+    val_batches: int = 4
+    seq_len: int = 4
+    val_seq_len: int = 16
+    lr: float = 1e-3
+    weight_decay: float = 1e-1
+    epochs: int = 100
+    lambda_weight: float = 1.0
+    rnn_traj_steps: int = 2
+    slerp_traj_steps: int = 20
+    device_type: str = field(default_factory=_default_device_type)
+    device: torch.device = field(init=False)
+    train_samples: int = field(init=False)
+    val_samples: int = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.device = torch.device(self.device_type)
+        self.train_samples = self.batch_size * self.num_batches
+        self.val_samples = self.batch_size * self.val_batches
+
+    def to_logging_dict(self) -> dict:
+        return {
+            "dinput": self.dinput,
+            "dstate": self.dstate,
+            "dmlp1": self.dmlp1,
+            "dmlp2": self.dmlp2,
+            "eps": self.eps,
+            "seed": self.seed,
+            "batch_size": self.batch_size,
+            "num_batches": self.num_batches,
+            "train_samples": self.train_samples,
+            "val_batches": self.val_batches,
+            "val_samples": self.val_samples,
+            "seq_len": self.seq_len,
+            "val_seq_len": self.val_seq_len,
+            "learning_rate": self.lr,
+            "weight_decay": self.weight_decay,
+            "epochs": self.epochs,
+            "lambda_weight": self.lambda_weight,
+            "rnn_traj_steps": self.rnn_traj_steps,
+            "slerp_traj_steps": self.slerp_traj_steps,
+            "device_type": self.device_type,
+            "device": str(self.device),
+        }
+
+CONFIG = TrainingConfig()
+
+__all__ = ["TrainingConfig", "CONFIG"]

@@ -7,9 +7,10 @@ from tqdm import tqdm
 from node import ODERNN
 from dataset import QuaternionDataset
 from quat import hybrid_loss, qdot, qmagnitude, qgeodesic
-from config import *
+from config import CONFIG
 
-def evaluate(model, dataloader):
+
+def evaluate(model, dataloader, device):
     model.eval()
     total_loss = 0
     total_geodesic = 0
@@ -20,8 +21,8 @@ def evaluate(model, dataloader):
 
     with torch.no_grad():
         for quaternions, composed in tqdm(dataloader):
-            quaternions = quaternions.to(DEVICE)
-            composed = composed.to(DEVICE)
+            quaternions = quaternions.to(device)
+            composed = composed.to(device)
 
             pred, h_trajs = model(quaternions)
             loss = hybrid_loss(pred, composed)
@@ -33,13 +34,13 @@ def evaluate(model, dataloader):
 
             _, T, N, D = h_trajs.shape
             for t in range(T):
-                h_step = h_trajs[:, t, :, :].reshape(-1, D) # [B*N, D]
-                q_step = quaternions[:, t, :].repeat_interleave(N, dim=0) # [B*N, 4]
+                h_step = h_trajs[:, t, :, :].reshape(-1, D)  # [B*N, D]
+                q_step = quaternions[:, t, :].repeat_interleave(N, dim=0)  # [B*N, 4]
 
                 def f(h, q):
-                    return model.odefunc(0.0, torch.cat([h, q], dim=-1)) # returns [D]
+                    return model.odefunc(0.0, torch.cat([h, q], dim=-1))  # returns [D]
 
-                J = vmap(jacrev(f))(h_step, q_step) # [B*N, D, D]
+                J = vmap(jacrev(f))(h_step, q_step)  # [B*N, D, D]
                 eigvals = torch.linalg.eigvals(J)
 
                 real = eigvals.real
@@ -85,19 +86,24 @@ def evaluate(model, dataloader):
     return total_loss / len(dataloader), total_geodesic / len(dataloader), total_dot / len(dataloader), norm_mean, norm_std, final_stats
 
 def main():
-    torch.manual_seed(SEED)
-    torch.cuda.manual_seed_all(SEED)
+    torch.manual_seed(CONFIG.seed)
+    torch.cuda.manual_seed_all(CONFIG.seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.set_default_dtype(torch.float64)
-    model = ODERNN().to(DEVICE)
+    model = ODERNN(CONFIG).to(CONFIG.device)
     model.load_state_dict(torch.load("best_model.pt", weights_only=True))
     model.eval()
-    dataset = QuaternionDataset(n_samples=VAL_SAMPLES, seq_length=VAL_SEQ_LEN)
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE,
-                                pin_memory=True, num_workers=4, persistent_workers=True)
+    dataset = QuaternionDataset(n_samples=CONFIG.val_samples, seq_length=CONFIG.val_seq_len)
+    loader = DataLoader(
+        dataset,
+        batch_size=CONFIG.batch_size,
+        pin_memory=True,
+        num_workers=4,
+        persistent_workers=True,
+    )
 
-    loss, geodesic, dot, norm_mean, norm_std, jacobian_stats = evaluate(model, loader)
+    loss, geodesic, dot, norm_mean, norm_std, jacobian_stats = evaluate(model, loader, CONFIG.device)
     print(loss, geodesic, dot, norm_mean, norm_std)
 
     with open("jacobian_stats.csv", "w", newline="") as f:

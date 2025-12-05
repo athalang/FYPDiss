@@ -4,12 +4,10 @@ from torchdiffeq import odeint
 from tqdm import tqdm
 
 from quat import qnormalise, qmul, slerp, qgeodesic
-from config import SLERP_TRAJ_STEPS, DEVICE, SEED
+from config import CONFIG
 from node import ODEFunc
-
-torch.no_grad
-torch.manual_seed(SEED)
-torch.cuda.manual_seed_all(SEED)
+torch.manual_seed(CONFIG.seed)
+torch.cuda.manual_seed_all(CONFIG.seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 torch.set_default_dtype(torch.float64)
@@ -17,15 +15,15 @@ torch.set_default_dtype(torch.float64)
 N_SAMPLES = 8192
 TOLERANCE = 0.05
 LOW, HIGH = 1.0 - TOLERANCE, 1.0 + TOLERANCE
-TS = torch.linspace(0, 1, SLERP_TRAJ_STEPS)
-odefunc = ODEFunc().to(DEVICE).eval()
+TS = torch.linspace(0, 1, CONFIG.slerp_traj_steps, device=CONFIG.device)
+odefunc = ODEFunc(CONFIG).to(CONFIG.device).eval()
 
 all_rows = []
 with torch.no_grad():
     for sample in tqdm(range(N_SAMPLES)):
 
-        h0 = torch.tensor([1.0, 0.0, 0.0, 0.0]).to(DEVICE)
-        q = qnormalise(torch.randn(4)).to(DEVICE)
+        h0 = torch.tensor([1.0, 0.0, 0.0, 0.0], device=CONFIG.device)
+        q = qnormalise(torch.randn(4, device=CONFIG.device))
         target = qnormalise(qmul(q, h0))
         slerp_traj = torch.stack([slerp(h0, target, t.item()) for t in TS])
 
